@@ -17,6 +17,20 @@
 
 Adafruit_MAX31855 thermocouple(MAXCLK, MAXCS, MAXDO);
 
+#define ECT_LUT_LEN 77
+
+uint16_t ECT_LUT[ECT_LUT_LEN] = {
+  1001, 997, 993, 987, 982, 975, 968, 959, 950, 939, 928, 914, 900, 884, 867, 848, 829, 807, 785,
+  761, 737, 710, 684, 657, 629, 600, 572, 544, 516, 489, 461, 435, 409, 385, 360, 338, 315, 295,
+  275, 257, 239, 223, 207, 194, 180, 168, 156, 145, 135, 126, 117, 109, 101, 95, 88, 82, 77, 72,
+  67, 63, 58, 55, 51, 48, 45, 42, 39, 37, 35, 33, 31, 29, 27, 26, 24, 23, 22
+};
+
+int16_t ect_lut_idx_to_c(uint8_t idx)
+{
+  return (int16_t) ((float) idx * 2.5 - 39.5);
+}
+
 void setup()
 {
   Serial.begin(9600);
@@ -79,7 +93,9 @@ void current_data(uint8_t pid)
   res.data[1] = 0x41;
   res.data[2] = pid;
   int tmpi;
+  uint16_t tmpu16;
   float tmpf;
+  double tmpd;
   switch (pid)
   {
     case 0x00:
@@ -100,34 +116,40 @@ void current_data(uint8_t pid)
       break;
     case 0x05:
       // ECT (C)
-      tmpf = analogRead(ECT_PIN);
+      tmpi = analogRead(ECT_PIN);
+      for (tmpu16 = 0; tmpu16 < ECT_LUT_LEN; ++tmpu16)
+        if (tmpi > ECT_LUT[tmpu16]) break;
+      tmpi = ect_lut_idx_to_c(tmpu16);
       res.data[0] = 0x03;
-      res.data[3] = (uint8_t) (tmpf + 40);
+      res.data[3] = (uint8_t) (tmpi + 40);
       send_msg(res);
       break;
     case 0x0B:
       // MAP (kPa)
       tmpf = (float) analogRead(MAP_PIN) * 0.301 - 101;
-      res.data[0] = 0x03;
-      res.data[3] = (uint8_t) tmpf;
+      tmpu16 = (uint16_t) (tmpf + 200);
+      res.data[0] = 0x04;
+      res.data[3] = (uint8_t) (tmpu16 >> 8);
+      res.data[4] = (uint8_t) (tmpu16 & 0x00FF);
       send_msg(res);
       break;
     case 0x33:
       // Oil pressure (kPa)
       tmpf = (float) analogRead(OIL_PIN) * 0.831 - 90.7;
-      Serial.println(tmpf);
-      tmpi = (uint16_t) tmpf;
+      if (tmpf < 0) tmpf = 0;
+      tmpu16 = (uint16_t) tmpf;
       res.data[0] = 0x04;
-      res.data[3] = (uint8_t) (tmpi >> 8);
-      res.data[4] = (uint8_t) (tmpi & 0x00FF);
+      res.data[3] = (uint8_t) (tmpu16 >> 8);
+      res.data[4] = (uint8_t) (tmpu16 & 0x00FF);
       send_msg(res);
       break;
     case 0x78:
       // EGT (C)
-      tmpi = (uint16_t) thermocouple.readCelsius();
+      tmpd = thermocouple.readCelsius() * 2;
+      tmpu16 = (uint16_t) tmpd;
       res.data[0] = 0x04;
-      res.data[3] = (uint8_t) (tmpi >> 8);
-      res.data[4] = (uint8_t) (tmpi & 0x00FF);
+      res.data[3] = (uint8_t) (tmpu16 >> 8);
+      res.data[4] = (uint8_t) (tmpu16 & 0x00FF);
       send_msg(res);
       break;
     default:
@@ -152,7 +174,7 @@ void vehicle_info(uint8_t pid)
       res.data[1] = 0x0F;
       res.data[2] = 0x49;
       res.data[3] = pid;
-      res.data[4] = 'H';  // why doesn't 0x00 work here lol
+      res.data[4] = 'H';  // not sure why this is needed
       res.data[5] = 'H';
       res.data[6] = 'A';
       res.data[7] = 'R';
